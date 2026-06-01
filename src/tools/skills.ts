@@ -224,6 +224,14 @@ export function registerSkillTools(
     taskDescription:
       "Optional scope hint (e.g. 'focus on token handling in src/auth/') or 'full' for everything in the diff.",
   });
+  registerBuiltinSubagentTool(registry, store, subagentRunner, {
+    toolName: "deep_research",
+    skillName: "deep-research",
+    description:
+      "Deep multi-round research with iterative refinement and citation tracking in an isolated subagent. Best for: 'comprehensive analysis of X', 'compare all approaches to Y', 'state of the art in Z'. Runs a five-step pipeline (Plan → Search → Evaluate → Cite → Synthesize) with configurable breadth/depth. Use when simple web_search or `research` isn't thorough enough.",
+    taskDescription:
+      "Concrete research topic. The subagent has none of your context — write a self-contained question describing what you want researched comprehensively.",
+  });
 
   const installScopeDesc = hasProjectScope
     ? "'project' (default) writes to <repo>/.reasonix/skills/, scoped to this workspace only; 'global' writes to ~/.reasonix/skills/, available in every project."
