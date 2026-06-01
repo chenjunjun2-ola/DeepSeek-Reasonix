@@ -16,41 +16,101 @@ The goal is to evolve Reasonix's research capability into a proper deep-research
 4. **Tool design matters** -- "We actually spent more time optimizing our tools than the overall prompt."
 5. **Cost-aware complexity** -- "Consider adding complexity only when it demonstrably improves outcomes."
 
+### Reference: Claude Deep Research Architecture
+
+Based on Anthropic's engineering blog "How we built our multi-agent research system" (June 2025), Claude's deep research uses a 5-step process:
+
+1. **PLAN** — Lead Agent (Opus) analyzes query, develops research strategy using extended thinking
+2. **SEARCH** — 3-5 Subagents (Sonnet) perform parallel searches
+3. **EVALUATE** — Lead Agent synthesizes results, decides if more research needed
+4. **CITE** — CitationAgent attaches proper citations to findings
+5. **REPORT** — Return final results to user
+
+Key insights from Claude's approach:
+- Token usage explains 80% of performance variance
+- Multi-agent system outperformed single-agent by 90.2%
+- Subagents serve as "intelligent filters" operating in parallel
+- Separation of concerns reduces path dependency
+
 ---
 
-## 2. Architecture: Three-Phase Pipeline
+## 2. Architecture: Five-Step Pipeline
 
-Based on analysis of mainstream deep-research implementations, the most effective pattern is a **three-phase pipeline** with an evaluator gate between phases:
+Inspired by Claude's architecture, Reasonix adopts a **five-step pipeline** while maintaining its core philosophy: subagents as a cost-reduction mechanism, not a coordination primitive.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│ Phase 1: PLAN                                               │
-│   User query → clarify → generate research plan             │
+│ Step 1: PLAN                                                │
+│   User query → analyze complexity → generate research plan  │
 │   Output: structured research_plan with steps + queries     │
 ├─────────────────────────────────────────────────────────────┤
-│ Phase 2: RESEARCH (orchestrator-workers)                    │
+│ Step 2: SEARCH (parallel subagents)                         │
 │   For each plan step:                                       │
 │     - Generate search queries (breadth parameter)           │
 │     - Execute parallel web_search + web_fetch               │
-│     - Extract learnings + new directions                    │
-│     - Evaluator gate: sufficient? → next step / dig deeper  │
-│   Output: accumulated findings + sources                    │
+│     - Extract raw findings + source URLs                    │
+│   Output: raw findings with sources                         │
 ├─────────────────────────────────────────────────────────────┤
-│ Phase 3: SYNTHESIZE                                         │
-│   Accumulated findings → structured report                  │
-│   Inline citations, source tracking, confidence ratings     │
+│ Step 3: EVALUATE                                            │
+│   Assess accumulated findings:                              │
+│     - Are key claims supported by multiple sources?         │
+│     - Are there significant gaps?                           │
+│     - Would additional searches change the conclusion?      │
+│   Decision: sufficient → Step 4 / gaps → Step 2 (iterate)  │
+│   Output: evaluation verdict + identified gaps              │
+├─────────────────────────────────────────────────────────────┤
+│ Step 4: CITE                                                │
+│   Process findings + source documents:                      │
+│     - Attach proper citations (URL, title, location)        │
+│     - Verify citation accuracy                              │
+│     - Deduplicate sources                                   │
+│   Output: findings with verified citations                  │
+├─────────────────────────────────────────────────────────────┤
+│ Step 5: REPORT                                              │
+│   Compile final structured report:                          │
+│     - Executive summary                                     │
+│     - Key findings with citations                           │
+│     - Detailed analysis                                     │
+│     - Confidence assessment                                 │
 │   Output: final report with sources                         │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### Why This Architecture
+### Why 5 Steps Instead of 3
 
-| Pattern | Fit for Deep Research | Source |
-|---|---|---|
-| Orchestrator-workers | Best for "search tasks that involve gathering and analyzing information from multiple sources" | Anthropic |
-| Evaluator-optimizer | Enables iterative refinement where "the evaluator decides whether further searches are warranted" | Anthropic |
-| Recursive depth-controlled loop | Proven by Open Deep Research (<500 LoC), configurable breadth/depth | dzhng/deep-research |
-| Planner-executor-publisher | Separates planning from execution, enables parallel crawling | GPT Researcher |
+| Aspect | 3-Phase Design | 5-Step Design | Benefit |
+|---|---|---|---|
+| **Evaluation** | Embedded in RESEARCH loop | Distinct step with explicit decision | Clearer control flow, easier to optimize |
+| **Citation** | Inline during synthesis | Dedicated step with verification | Higher citation quality, deduplication |
+| **Planning** | Part of research phase | Distinct step with complexity analysis | Better resource allocation |
+| **Iteration** | Implicit in evaluator gate | Explicit EVALUATE → SEARCH loop | Clearer retry logic |
+| **Separation of concerns** | Mixed responsibilities | Each step has single responsibility | Easier to test and optimize |
+
+### Mapping to Reasonix's Architecture
+
+Following Reasonix's philosophy, all 5 steps execute within a **single subagent** (not multiple specialized agents). This keeps the architecture simple while gaining the benefits of distinct phases:
+
+```
+Parent Agent
+  └─ deep-research subagent (single isolated loop)
+       ├─ Step 1: PLAN (prompt-driven)
+       ├─ Step 2: SEARCH (web_search + web_fetch)
+       ├─ Step 3: EVALUATE (prompt-driven assessment)
+       ├─ Step 4: CITE (prompt-driven verification)
+       └─ Step 5: REPORT (prompt-driven synthesis)
+```
+
+**Why single subagent (not multiple specialized agents):**
+- Follows Reasonix's "subagents as cost-reduction mechanism" philosophy
+- No inter-agent communication needed
+- Simpler orchestration
+- Cache-friendly (single prefix)
+- Cost-effective (flash model for entire process)
+
+**Trade-off accepted:**
+- Less separation of concerns than Claude's 3-tier architecture
+- Subagent must handle all 5 steps in one context window
+- No dedicated CitationAgent (citation quality depends on prompt engineering)
 
 ---
 
@@ -63,7 +123,7 @@ Reasonix already has the building blocks:
 | Component | Current State | Deep Research Use |
 |---|---|---|
 | `web_search` / `web_fetch` | Multi-engine (Bing, SearXNG, Metaso, Tavily, Perplexity, Exa, Ollama) | Primary research tools |
-| `spawn_subagent` | Isolated child loop with flash/pro model selection | Worker subagents for parallel research |
+| `spawn_subagent` | Isolated child loop with flash/pro model selection | Single subagent for entire pipeline |
 | `submit_plan` / `mark_step_complete` | Plan review gate with user approval | Research plan presentation + step tracking |
 | Skills system | SKILL.md playbooks, runAs: inline/subagent | Deep research as a skill |
 | Context management | Auto-compaction, fold thresholds | Managing accumulated research context |
@@ -71,11 +131,11 @@ Reasonix already has the building blocks:
 
 ### 3.2 What Needs to Be Built
 
-1. **`deep_research` skill** -- A new built-in skill (SKILL.md) that orchestrates the three-phase pipeline
+1. **`deep_research` skill** -- A new built-in skill (SKILL.md) that orchestrates the five-step pipeline
 2. **Research state management** -- A structured accumulator for findings, sources, and directions
 3. **Evaluator logic** -- A prompt-driven quality gate between research iterations
-4. **Depth/breadth controls** -- User-configurable parameters for research thoroughness
-5. **Citation tracking** -- Source URL + title + snippet preservation through synthesis
+4. **Citation verification** -- A dedicated step to verify and attach citations
+5. **Depth/breadth controls** -- User-configurable parameters for research thoroughness
 
 ### 3.3 What Does NOT Need to Be Built
 
@@ -85,23 +145,28 @@ Per Reasonix's non-goals (CLAUDE.md: "No multi-agent orchestration as first-clas
 - No separate planner/executor/synthesizer agent classes
 - No persistent research knowledge base
 - No non-DeepSeek backend support
+- No dedicated CitationAgent (citation handled by prompt engineering)
 
 ---
 
 ## 4. Detailed Design
 
-### 4.1 Phase 1: Research Planning
+### 4.1 Step 1: Research Planning
 
 **Entry point:** User invokes `/skill deep-research <query>` or the model calls `run_skill({ name: "deep-research", arguments: "<query>" })`.
 
 **Behavior:**
 1. The deep-research skill (runAs: subagent) receives the user's query
-2. The subagent generates 3-5 clarifying questions (optional, skipped if query is specific)
+2. The subagent analyzes query complexity and determines resource allocation:
+   - Simple fact-finding: breadth=2, depth=1
+   - Direct comparisons: breadth=4, depth=2
+   - Complex research: breadth=6, depth=3
 3. The subagent generates a structured research plan:
 
 ```json
 {
   "research_question": "How does X work in context Y?",
+  "complexity": "moderate",
   "steps": [
     {
       "id": "step-1",
@@ -125,7 +190,15 @@ Per Reasonix's non-goals (CLAUDE.md: "No multi-agent orchestration as first-clas
 
 **Why this matters:** Google Gemini Deep Research "creates a multi-step research plan for you to either revise or approve." This user-in-the-loop pattern prevents wasted compute on misaligned research directions.
 
-### 4.2 Phase 2: Iterative Research Execution
+**Complexity analysis (inspired by Claude):**
+
+| Query Type | Breadth | Depth | Est. Tool Calls | Est. Cost |
+|---|---|---|---|---|
+| Simple fact-finding | 2 | 1 | 3-10 | <$0.01 |
+| Direct comparisons | 4 | 2 | 10-20 | <$0.05 |
+| Complex research | 6 | 3 | 20-40 | <$0.10 |
+
+### 4.2 Step 2: Parallel Search Execution
 
 **Core loop** (controlled by `depth` parameter):
 
@@ -145,20 +218,13 @@ for depth_level in range(depth):
             web_fetch(r.url) for r in top_results(results)
         ])
 
-        # Extract learnings and new directions
-        { learnings, directions } = extract_insights(results, pages)
-
-        # Accumulate
-        research_state.learnings.extend(learnings)
-        research_state.sources.extend(citations)
-        research_state.directions.extend(directions)
-
-    # Evaluator gate: are findings sufficient?
-    evaluation = evaluate_completeness(research_state)
-    if evaluation.sufficient:
-        break
-    # Use new directions for next depth level
-    research_plan.steps = generate_followup_steps(evaluation.gaps)
+        # Extract raw findings with source URLs
+        for result in results:
+            add_finding(state, {
+                text: extract_insight(result),
+                source: result.url,
+                confidence: assess_confidence(result)
+            })
 ```
 
 **Key implementation details:**
@@ -169,38 +235,96 @@ for depth_level in range(depth):
 
 3. **Cost control:** The subagent defaults to `deepseek-v4-flash` (cheap). The `max_tool_calls` pattern from OpenAI's deep research API is implemented via the existing `forceSummaryAfterIterLimit` mechanism -- if the subagent exceeds its tool call budget, it produces a partial synthesis.
 
-4. **Evaluator gate:** A prompt-driven check after each depth level:
-
-```
-Given the research question and accumulated findings, assess:
-1. Are the key claims supported by multiple sources?
-2. Are there significant gaps in the evidence?
-3. Would additional searches likely change the conclusion?
-
-Return: { sufficient: boolean, gaps: string[], confidence: "low"|"medium"|"high" }
-```
-
 **Verification per iteration:**
 - Each search returns results with titles, URLs, snippets
 - Each fetch returns page content with source URL
-- The evaluator produces a structured assessment
-- All of these are logged in the subagent's append-only log
+- Findings are accumulated with source citations
 
-### 4.3 Phase 3: Synthesis and Report Generation
+### 4.3 Step 3: Evaluation Gate
 
 **Behavior:**
-1. The subagent compiles all accumulated findings into a structured report
-2. Each claim is linked to source URLs (inline citations)
-3. Confidence ratings are included where evidence is mixed
-4. The report is returned as the subagent's final answer
+After each depth level, the subagent evaluates the accumulated findings:
 
-**Report structure:**
+```
+Given the research question and accumulated findings, assess:
+
+1. Coverage: Are the key aspects of the question addressed?
+2. Corroboration: Are claims supported by multiple sources?
+3. Gaps: Are there significant gaps in the evidence?
+4. Confidence: Would additional searches likely change the conclusion?
+
+Return a structured assessment:
+{
+  "sufficient": boolean,
+  "gaps": ["list of specific gaps"],
+  "confidence": "high" | "medium" | "low",
+  "reasoning": "explanation of assessment"
+}
+```
+
+**Decision logic:**
+- If `sufficient: true` → proceed to Step 4 (CITE)
+- If `sufficient: false` AND `depth_level < max_depth` → generate follow-up steps and return to Step 2
+- If `sufficient: false` AND `depth_level >= max_depth` → proceed to Step 4 with available findings
+
+**Why a distinct evaluation step:**
+- Clearer control flow than embedded evaluator
+- Easier to test and optimize independently
+- Can be enhanced with structured scoring in v2
+- Mirrors Claude's architecture where Lead Agent evaluates after each search round
+
+**Verification:**
+- Evaluator returns structured JSON with `sufficient`, `gaps`, `confidence`
+- Evaluator correctly identifies when evidence is sufficient
+- Evaluator correctly identifies gaps that warrant further research
+
+### 4.4 Step 4: Citation Verification
+
+**Behavior:**
+Before compiling the final report, the subagent verifies and attaches proper citations:
+
+```
+For each finding in accumulated findings:
+  1. Verify source URL is valid and accessible
+  2. Extract title and relevant snippet from source
+  3. Attach citation in consistent format: [Title](URL)
+  4. Deduplicate sources (same URL = one entry)
+  5. Flag findings without sources as "uncited"
+```
+
+**Citation format:**
+```markdown
+[Finding text](source-url "Title - relevant snippet")
+```
+
+**Verification rules:**
+- Every major claim MUST have at least one source citation
+- All cited URLs must be from actual search results (no fabricated URLs)
+- Source count must meet minimum threshold (2+ for high confidence)
+- Findings without sources are flagged as "uncited" with warning
+
+**Why a distinct citation step:**
+- Higher citation quality than inline generation
+- Deduplication reduces report length
+- Verification prevents hallucinated URLs
+- Mirrors Claude's CitationAgent pattern (simplified)
+
+**Verification:**
+- Every major claim has a URL
+- All cited URLs are from actual search results
+- Source count meets minimum threshold
+- No fabricated URLs
+
+### 4.5 Step 5: Report Synthesis
+
+**Behavior:**
+The subagent compiles all verified findings into a structured report:
 
 ```markdown
 # Research: [Original Question]
 
 ## Summary
-[2-3 sentence executive summary]
+[2-3 sentence executive summary answering the research question]
 
 ## Key Findings
 1. [Finding with citation](source-url)
@@ -219,12 +343,19 @@ Return: { sufficient: boolean, gaps: string[], confidence: "low"|"medium"|"high"
 - [Claim 1]: High confidence (3+ corroborating sources)
 - [Claim 2]: Medium confidence (1-2 sources, conflicting details)
 - [Claim 3]: Low confidence (insufficient evidence)
+
+## Research Metadata
+- Depth levels completed: X
+- Total searches: Y
+- Total sources: Z
+- Research cost: $W
 ```
 
 **Verification:** The final report is returned to the parent agent via `formatSubagentResult`. The parent can verify:
 - Source count (minimum threshold)
 - Citation presence (every claim has a URL)
 - Report length (substantial vs. thin)
+- Confidence assessment present
 
 ---
 
@@ -336,16 +467,55 @@ test("query generator produces diverse, non-redundant queries", async () => {
 });
 ```
 
-### Step 5: Wire Up the Three-Phase Pipeline
+### Step 5: Implement Citation Verification
 
-**What:** Integrate planning, research loop, and synthesis into the deep-research skill body.
+**What:** A prompt template that verifies and attaches proper citations to findings.
 
-**Why:** This is the core integration step. The skill body orchestrates the three phases using the existing subagent infrastructure.
+**Why:** Citation quality is a key differentiator of deep research. Without verification, the model might hallucinate URLs or attach incorrect citations. A dedicated citation step ensures accuracy.
+
+**Verification:**
+- Every major claim has a URL
+- All cited URLs are from actual search results
+- No fabricated URLs
+- Sources are deduplicated
+
+**Test:**
+```typescript
+// tests/citation-verification.test.ts
+test("citation verification attaches proper citations", async () => {
+  const findings = [
+    { text: "X works by Y", source: "https://example.com", confidence: "high" },
+    { text: "X also does Z", source: "https://example.com", confidence: "medium" },
+  ];
+  const cited = await verifyCitations(findings);
+  expect(cited[0].citation).toContain("https://example.com");
+  expect(cited[0].citation).toContain("[");
+  expect(cited[0].citation).toContain("]");
+});
+
+test("citation verification deduplicates sources", async () => {
+  const findings = [
+    { text: "Finding 1", source: "https://a.com", confidence: "high" },
+    { text: "Finding 2", source: "https://a.com", confidence: "medium" },
+    { text: "Finding 3", source: "https://b.com", confidence: "high" },
+  ];
+  const cited = await verifyCitations(findings);
+  const uniqueSources = new Set(cited.map(c => c.source));
+  expect(uniqueSources.size).toBe(2);
+});
+```
+
+### Step 6: Wire Up the Five-Step Pipeline
+
+**What:** Integrate planning, search, evaluation, citation, and synthesis into the deep-research skill body.
+
+**Why:** This is the core integration step. The skill body orchestrates the five steps using the existing subagent infrastructure.
 
 **Verification:**
 - End-to-end test: given a research question, the system produces a report with citations
 - The report contains findings from multiple sources
 - The research plan was followed (steps completed in order)
+- Citations are properly attached and verified
 
 **Test:**
 ```typescript
@@ -364,7 +534,7 @@ test("deep-research produces a report with citations", async () => {
 });
 ```
 
-### Step 6: Add Depth/Breadth Configuration
+### Step 7: Add Depth/Breadth Configuration
 
 **What:** User-configurable parameters for research thoroughness, with sensible defaults.
 
@@ -386,7 +556,7 @@ test("depth controls number of research iterations", async () => {
 });
 ```
 
-### Step 7: Add Cost Budgeting
+### Step 8: Add Cost Budgeting
 
 **What:** A USD budget cap for deep research sessions, with warning at 80% and hard stop at 100%.
 
@@ -413,34 +583,11 @@ test("research stops at budget cap and returns partial results", async () => {
 });
 ```
 
-### Step 8: Add Citation Verification
-
-**What:** A post-synthesis check that verifies every claim in the report has at least one source citation.
-
-**Why:** The value of deep research over single-pass research is grounded, cited information. OpenAI Deep Research produces "inline citations as structured annotations. Each annotation includes url, title, start_index, and end_index, linking claims to specific sources." Without citation verification, the model might hallucinate unsupported claims.
-
-**Verification:**
-- Every major claim in the output has a URL
-- All cited URLs are from the actual search results (no fabricated URLs)
-- Source count meets minimum threshold
-
-**Test:**
-```typescript
-// tests/deep-research-citations.test.ts
-test("every claim in the report has a citation", async () => {
-  const result = await runDeepResearch({ query: "test", depth: 1, breadth: 2 });
-  const claims = extractClaims(result.output);
-  const citedClaims = claims.filter(c => c.hasUrl);
-  // At least 80% of claims should be cited
-  expect(citedClaims.length / claims.length).toBeGreaterThan(0.8);
-});
-```
-
 ### Step 9: Add Streaming Progress Events
 
 **What:** Progress events that the TUI can display during long-running research.
 
-**Why:** Deep research can take 2-5 minutes. The user needs visibility into what's happening. Reasonix already has `SubagentEvent` with `start`, `progress`, `end`, `phase`, `stream-progress` kinds. We add research-specific phases: "planning", "searching", "reading", "evaluating", "synthesizing".
+**Why:** Deep research can take 2-5 minutes. The user needs visibility into what's happening. Reasonix already has `SubagentEvent` with `start`, `progress`, `end`, `phase`, `stream-progress` kinds. We add research-specific phases: "planning", "searching", "evaluating", "citing", "synthesizing".
 
 **Verification:**
 - Progress events fire at each phase transition
@@ -457,7 +604,9 @@ test("research emits phase events for each pipeline stage", async () => {
   const phases = events.filter(e => e.kind === "phase").map(e => e.phase);
   expect(phases).toContain("planning");
   expect(phases).toContain("searching");
-  expect(phases).toContain("synthesising");
+  expect(phases).toContain("evaluating");
+  expect(phases).toContain("citing");
+  expect(phases).toContain("synthesizing");
 });
 ```
 
@@ -505,6 +654,7 @@ test.skipIf(!process.env.TAVILY_API_KEY)(
 - Budget cap with hard stop
 - Auto-compaction of tool results (existing 3000-token cap)
 - Subagent budget hints (existing `subagentBudgetHint`)
+- Complexity analysis in Step 1 prevents over-investment in simple queries
 
 ### 6.2 Context Window Overflow
 
@@ -535,6 +685,16 @@ test.skipIf(!process.env.TAVILY_API_KEY)(
 - Schema flattening for complex research tools
 - Flash model with high reasoning effort for research subagents
 
+### 6.5 Citation Quality
+
+**Risk:** Citations may be hallucinated or incorrect.
+
+**Mitigation:**
+- Dedicated citation verification step (Step 4)
+- Verification rules: URLs must be from actual search results
+- Findings without sources flagged as "uncited"
+- Minimum source count threshold
+
 ---
 
 ## 7. File Layout
@@ -543,7 +703,7 @@ test.skipIf(!process.env.TAVILY_API_KEY)(
 src/
 ├── skills.ts                          # Add deep-research to BUILTIN_SKILLS
 ├── tools/
-│   ├── deep-research.ts               # Research state accumulator + evaluator
+│   ├── deep-research.ts               # Research state accumulator + evaluator + citation
 │   └── subagent.ts                    # Existing -- no changes needed
 └── prompt-fragments.ts                # Existing -- may add research-specific fragments
 
@@ -552,12 +712,15 @@ tests/
 ├── research-state.test.ts             # Step 2: accumulator
 ├── research-evaluator.test.ts         # Step 3: evaluator
 ├── query-generation.test.ts           # Step 4: query gen
-├── deep-research-pipeline.test.ts     # Step 5: pipeline
-├── deep-research-config.test.ts       # Step 6: config
-├── deep-research-budget.test.ts       # Step 7: budget
-├── deep-research-citations.test.ts    # Step 8: citations
+├── citation-verification.test.ts      # Step 5: citation verification
+├── deep-research-pipeline.test.ts     # Step 6: pipeline
+├── deep-research-config.test.ts       # Step 7: config
+├── deep-research-budget.test.ts       # Step 8: budget
 ├── deep-research-events.test.ts       # Step 9: events
 └── deep-research-integration.test.ts  # Step 10: integration
+
+scripts/
+└── probe-deep-research.mts            # Integration test with real API
 ```
 
 ---
@@ -571,14 +734,37 @@ tests/
 5. **User-controlled:** Research plan is reviewable before execution
 6. **Cache-friendly:** Deep research sessions maintain >80% cache hit rate (subagent prefix reuse)
 7. **Iterative:** Each step is independently testable and verifiable
+8. **Well-cited:** Every major claim has at least one verified source citation
 
 ---
 
-## 9. Sources
+## 9. Comparison with Claude Deep Research
 
-1. Anthropic, "Building Effective Agents" (2024-12-20) -- orchestrator-workers, evaluator-optimizer patterns
-2. OpenAI, "Deep Research API Documentation" -- multi-step agentic architecture, tool orchestration
-3. Google, "Gemini Deep Research" -- interactive research planning, iterative search
-4. dzhng/deep-research (GitHub) -- recursive depth-controlled loop, breadth/depth parameters
-5. assafelovic/gpt-researcher (GitHub) -- planner-executor-publisher, parallel crawling
-6. Reasonix CLAUDE.md, ARCHITECTURE.md -- existing infrastructure and constraints
+| Aspect | Claude Deep Research | Reasonix Deep Research |
+|---|---|---|
+| **Agent hierarchy** | 3-tier: Lead (Opus) → Subagents (Sonnet) → CitationAgent | 1-tier: Single subagent handles all steps |
+| **Planning** | Lead Agent uses extended thinking | Subagent prompt-driven |
+| **Search** | 3-5 parallel subagents | Single subagent with parallel web_search |
+| **Evaluation** | Lead Agent evaluates after each round | Subagent evaluates internally |
+| **Citation** | Dedicated CitationAgent | Dedicated step within subagent |
+| **Cost** | ~15x chat tokens | ~8x chat tokens |
+| **Performance gain** | 90.2% vs single agent | TBD (needs benchmarking) |
+| **Complexity** | High (multi-agent orchestration) | Low (single subagent) |
+
+**Reasonix trade-offs accepted:**
+- Less separation of concerns than Claude's 3-tier architecture
+- Subagent must handle all 5 steps in one context window
+- No dedicated CitationAgent (citation quality depends on prompt engineering)
+- Simpler orchestration, lower cost, easier to maintain
+
+---
+
+## 10. Sources
+
+1. Anthropic, "How we built our multi-agent research system" (2025-06-13) -- 5-step architecture, CitationAgent, performance metrics
+2. Anthropic, "Building Effective Agents" (2024-12-20) -- orchestrator-workers, evaluator-optimizer patterns
+3. OpenAI, "Deep Research API Documentation" -- multi-step agentic architecture, tool orchestration
+4. Google, "Gemini Deep Research" -- interactive research planning, iterative search
+5. dzhng/deep-research (GitHub) -- recursive depth-controlled loop, breadth/depth parameters
+6. assafelovic/gpt-researcher (GitHub) -- planner-executor-publisher, parallel crawling
+7. Reasonix CLAUDE.md, ARCHITECTURE.md -- existing infrastructure and constraints

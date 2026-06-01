@@ -17,10 +17,12 @@ describe("deep-research skill", () => {
     const skill = store.read("deep-research");
     expect(skill).not.toBeNull();
     expect(skill!.body.length).toBeGreaterThan(100);
-    expect(skill!.body).toContain("Three-Phase Pipeline");
-    expect(skill!.body).toContain("Phase 1: Plan");
-    expect(skill!.body).toContain("Phase 2: Research");
-    expect(skill!.body).toContain("Phase 3: Synthesize");
+    expect(skill!.body).toContain("Five-Step Pipeline");
+    expect(skill!.body).toContain("Step 1: PLAN");
+    expect(skill!.body).toContain("Step 2: SEARCH");
+    expect(skill!.body).toContain("Step 3: EVALUATE");
+    expect(skill!.body).toContain("Step 4: CITE");
+    expect(skill!.body).toContain("Step 5: REPORT");
   });
 
   it("includes citation requirements in body", () => {
