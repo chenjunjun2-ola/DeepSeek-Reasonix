@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Deep Research 时序图</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            min-height: 100vh;
+            padding: 40px 20px;
+            color: #e0e0e0;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        h1 {
+            text-align: center;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            background: linear-gradient(90deg, #00d2ff, #3a7bd5);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .subtitle {
+            text-align: center;
+            color: #8892b0;
+            font-size: 1.1em;
+            margin-bottom: 40px;
+        }
+        .diagram-container {
+            background: #ffffff;
+            border-radius: 16px;
+            padding: 30px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            margin-bottom: 40px;
+            overflow-x: auto;
+        }
+        .mermaid {
+            display: flex;
+            justify-content: center;
+        }
+        .legend {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-top: 40px;
+        }
+        .legend-item {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 20px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .legend-item h3 {
+            font-size: 1.1em;
+            margin-bottom: 10px;
+            color: #00d2ff;
+        }
+        .legend-item ul {
+            list-style: none;
+            font-size: 0.9em;
+            color: #b0b0b0;
+        }
+        .legend-item ul li {
+            margin-bottom: 5px;
+            padding-left: 15px;
+            position: relative;
+        }
+        .legend-item ul li::before {
+            content: "•";
+            position: absolute;
+            left: 0;
+            color: #3a7bd5;
+        }
+        .phase-section {
+            margin-top: 40px;
+        }
+        .phase-card {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            padding: 25px;
+            margin-bottom: 20px;
+            border-left: 4px solid;
+            backdrop-filter: blur(10px);
+        }
+        .phase-card.plan { border-left-color: #00d2ff; }
+        .phase-card.search { border-left-color: #ff6b6b; }
+        .phase-card.evaluate { border-left-color: #ffd93d; }
+        .phase-card.cite { border-left-color: #6bcb77; }
+        .phase-card.report { border-left-color: #4d96ff; }
+        .phase-card h3 {
+            font-size: 1.3em;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .phase-card .badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.8em;
+            font-weight: bold;
+        }
+        .phase-card.plan .badge { background: #00d2ff; color: #000; }
+        .phase-card.search .badge { background: #ff6b6b; color: #000; }
+        .phase-card.evaluate .badge { background: #ffd93d; color: #000; }
+        .phase-card.cite .badge { background: #6bcb77; color: #000; }
+        .phase-card.report .badge { background: #4d96ff; color: #000; }
+        .phase-card p {
+            color: #b0b0b0;
+            line-height: 1.6;
+        }
+        .role-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 20px;
+            margin-top: 30px;
+        }
+        .role-card {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            padding: 25px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .role-card h3 {
+            color: #00d2ff;
+            margin-bottom: 15px;
+            font-size: 1.2em;
+        }
+        .role-card ul {
+            list-style: none;
+            font-size: 0.95em;
+        }
+        .role-card ul li {
+            margin-bottom: 10px;
+            padding-left: 20px;
+            position: relative;
+            color: #d0d0d0;
+        }
+        .role-card ul li::before {
+            content: "→";
+            position: absolute;
+            left: 0;
+            color: #3a7bd5;
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 20px;
+            margin-top: 40px;
+        }
+        .stat-card {
+            background: linear-gradient(135deg, rgba(0, 210, 255, 0.1), rgba(58, 123, 213, 0.1));
+            border-radius: 12px;
+            padding: 25px;
+            text-align: center;
+            border: 1px solid rgba(0, 210, 255, 0.2);
+        }
+        .stat-card .number {
+            font-size: 2.5em;
+            font-weight: bold;
+            color: #00d2ff;
+            margin-bottom: 5px;
+        }
+        .stat-card .label {
+            color: #8892b0;
+            font-size: 0.9em;
+        }
+        @media (max-width: 768px) {
+            .role-grid, .stats {
+                grid-template-columns: 1fr;
+            }
+            h1 {
+                font-size: 1.8em;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔬 Deep Research 时序图</h1>
+        <p class="subtitle">五步流程：PLAN → SEARCH → EVALUATE → CITE → REPORT</p>
+
+        <div class="diagram-container">
+            <pre class="mermaid">
+sequenceDiagram
+    participant U as 👤 用户
+    participant P as 🤖 主智能体
+    participant S as 🔍 子智能体<br/>(deep-research)
+    participant L as 🧠 大模型<br/>(v4-flash)
+    participant W as 🌐 Web<br/>(web_search/web_fetch)
+
+    Note over U,W: ══════════════════════════════════════════════════════════════
+    Note over U,W: 📋 Step 1: PLAN 规划
+    Note over U,W: ══════════════════════════════════════════════════════════════
+
+    U->>P: /skill deep-research "研究问题"
+    P->>S: run_skill({name: "deep-research", arguments: "研究问题"})
+
+    S->>L: 分析查询复杂度
+    Note right of L: 输入：用户问题<br/>评估：simple/moderate/complex<br/>确定：breadth, depth
+    L-->>S: {complexity: "moderate", breadth: 4, depth: 2}
+
+    S->>L: 生成研究计划
+    Note right of L: 输入：问题 + 复杂度分析<br/>输出：结构化计划 JSON
+    L-->>S: {steps: [{id, title, queries, goal}, ...]}
+
+    opt 用户审核（可选）
+        S->>P: submit_plan(research_plan)
+        P->>U: 📊 显示研究计划
+        U-->>P: ✅ 批准 / ❌ 拒绝
+        P-->>S: approved / rejected
+    end
+
+    Note over U,W: ══════════════════════════════════════════════════════════════
+    Note over U,W: 🔍 Step 2: SEARCH 搜索
+    Note over U,W: ══════════════════════════════════════════════════════════════
+
+    loop 每个 depth level (depth = 2)
+        loop 每个 plan step (steps = 3-5)
+            S->>L: 生成搜索查询
+            Note right of L: 输入：step + 累积上下文<br/>+ 已搜索查询（避免重复）<br/>输出：3-5 个查询
+            L-->>S: ["query1", "query2", "query3"]
+
+            par 并行搜索（最多3个并发）
+                S->>W: web_search("query1", topK=4)
+                W-->>S: [{title, url, snippet}, ...]
+            and
+                S->>W: web_search("query2", topK=4)
+                W-->>S: [{title, url, snippet}, ...]
+            and
+                S->>W: web_search("query3", topK=4)
+                W-->>S: [{title, url, snippet}, ...]
+            end
+
+            par 并行获取（深入阅读）
+                S->>W: web_fetch(url1)
+                W-->>S: {title, text, truncated}
+            and
+                S->>W: web_fetch(url2)
+                W-->>S: {title, text, truncated}
+            end
+
+            S->>L: 提取发现
+            Note right of L: 输入：搜索结果 + 页面内容<br/>提取：关键信息 + 源 URL<br/>评估：置信度 high/medium/low
+            L-->>S: [{text, source, confidence}, ...]
+
+            S->>S: 累积到 ResearchState
+            Note right of S: addFinding({text, source, confidence})<br/>addSource({url, title, snippet})<br/>addSearchedQuery(query)
+        end
+
+        Note over U,W: ══════════════════════════════════════════════════════════════
+        Note over U,W: ✅ Step 3: EVALUATE 评估
+        Note over U,W: ══════════════════════════════════════════════════════════════
+
+        S->>L: 评估研究完整性
+        Note right of L: 输入：研究问题 + 累积发现<br/>评估维度：<br/>- 覆盖度：关键方面是否覆盖？<br/>- 佐证：声明有多个源支持？<br/>- 差距：有显著证据差距？<br/>- 置信度：额外搜索会改变结论？
+        L-->>S: {sufficient: true/false, gaps: [...], confidence: "..."}
+
+        alt sufficient = true
+            S->>S: ✅ 跳过剩余 depth level
+        else sufficient = false AND depth < max_depth
+            S->>L: 生成后续步骤
+            Note right of L: 基于 gaps 生成<br/>新的搜索方向
+            L-->>S: [follow-up steps]
+            Note right of S: 🔄 返回 Step 2 继续搜索
+        else sufficient = false AND depth >= max_depth
+            S->>S: ⚠️ 用现有发现继续
+        end
+    end
+
+    Note over U,W: ══════════════════════════════════════════════════════════════
+    Note over U,W: 📎 Step 4: CITE 引用验证
+    Note over U,W: ══════════════════════════════════════════════════════════════
+
+    loop 每个 finding
+        S->>S: 验证源 URL
+        Note right of S: ✅ URL 是否来自实际搜索结果？<br/>✅ URL 是否可访问？
+
+        S->>S: 附加引用
+        Note right of S: 格式：[Title](URL)
+
+        S->>S: 去重源
+        Note right of S: 同一 URL = 一个条目
+
+        alt source 为空
+            S->>S: ⚠️ 标记 "uncited" + 警告
+        end
+    end
+
+    Note over U,W: ══════════════════════════════════════════════════════════════
+    Note over U,W: 📄 Step 5: REPORT 报告
+    Note over U,W: ══════════════════════════════════════════════════════════════
+
+    S->>L: 编译最终报告
+    Note right of L: 输入：研究问题 + 验证后的发现<br/>+ 去重后的源列表<br/>输出：结构化报告
+    L-->>S: 📄 最终报告<br/># Research: [问题]<br/>## Summary<br/>## Key Findings<br/>## Detailed Analysis<br/>## Sources<br/>## Confidence Assessment<br/>## Research Metadata
+
+    S-->>P: formatSubagentResult(report)
+    P-->>U: 📊 显示最终研究报告
+            </pre>
+        </div>
+
+        <div class="legend">
+            <div class="legend-item">
+                <h3>👤 用户</h3>
+                <ul>
+                    <li>提出研究问题</li>
+                    <li>审核研究计划（可选）</li>
+                    <li>接收最终报告</li>
+                </ul>
+            </div>
+            <div class="legend-item">
+                <h3>🤖 主智能体</h3>
+                <ul>
+                    <li>接收用户请求</li>
+                    <li>调用 deep-research skill</li>
+                    <li>汇总最终结果</li>
+                </ul>
+            </div>
+            <div class="legend-item">
+                <h3>🔍 子智能体</h3>
+                <ul>
+                    <li>执行 5 步流程</li>
+                    <li>调用工具搜索</li>
+                    <li>管理研究状态</li>
+                    <li>模型：v4-flash</li>
+                </ul>
+            </div>
+            <div class="legend-item">
+                <h3>🧠 大模型</h3>
+                <ul>
+                    <li>分析复杂度</li>
+                    <li>生成计划/查询</li>
+                    <li>提取发现</li>
+                    <li>评估完整性</li>
+                    <li>编译报告</li>
+                </ul>
+            </div>
+            <div class="legend-item">
+                <h3>🌐 Web</h3>
+                <ul>
+                    <li>web_search：并行搜索</li>
+                    <li>web_fetch：深入阅读</li>
+                    <li>支持 7 个搜索引擎</li>
+                </ul>
+            </div>
+            <div class="legend-item">
+                <h3>📊 数据流</h3>
+                <ul>
+                    <li>→ 实线：请求/调用</li>
+                    <li>--> 虚线：响应/返回</li>
+                    <li>par：并行执行</li>
+                    <li>loop：循环迭代</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="phase-section">
+            <h2 style="color: #00d2ff; margin-bottom: 20px; font-size: 1.8em;">📋 五步流程详解</h2>
+
+            <div class="phase-card plan">
+                <h3><span class="badge">Step 1</span> PLAN 规划</h3>
+                <p><strong>职责：</strong>子智能体分析查询复杂度，生成结构化研究计划</p>
+                <p><strong>输出：</strong>research_plan JSON（steps, breadth, depth）</p>
+                <p><strong>LLM 调用：</strong>2 次（分析复杂度 + 生成计划）</p>
+                <p><strong>用户参与：</strong>可选审核（submit_plan）</p>
+            </div>
+
+            <div class="phase-card search">
+                <h3><span class="badge">Step 2</span> SEARCH 搜索</h3>
+                <p><strong>职责：</strong>子智能体遍历计划步骤，并行执行搜索</p>
+                <p><strong>工具：</strong>web_search（并行）+ web_fetch（深入阅读）</p>
+                <p><strong>LLM 调用：</strong>N×2 次（生成查询 + 提取发现）</p>
+                <p><strong>并行度：</strong>最多 3 个并发（REASONIX_PARALLEL_MAX）</p>
+            </div>
+
+            <div class="phase-card evaluate">
+                <h3><span class="badge">Step 3</span> EVALUATE 评估</h3>
+                <p><strong>职责：</strong>评估研究完整性，决定是否继续迭代</p>
+                <p><strong>评估维度：</strong>覆盖度、佐证、差距、置信度</p>
+                <p><strong>LLM 调用：</strong>depth 次（每个 depth level 评估一次）</p>
+                <p><strong>决策：</strong>足够→Step4 / 不足→Step2（迭代）</p>
+            </div>
+
+            <div class="phase-card cite">
+                <h3><span class="badge">Step 4</span> CITE 引用验证</h3>
+                <p><strong>职责：</strong>验证源 URL，附加引用，去重源</p>
+                <p><strong>规则：</strong>URL 必须来自实际搜索结果，不能伪造</p>
+                <p><strong>LLM 调用：</strong>0 次（纯逻辑处理）</p>
+                <p><strong>输出：</strong>带验证引用的发现列表</p>
+            </div>
+
+            <div class="phase-card report">
+                <h3><span class="badge">Step 5</span> REPORT 报告</h3>
+                <p><strong>职责：</strong>编译最终结构化报告</p>
+                <p><strong>输出：</strong>摘要、发现、分析、源、置信度、元数据</p>
+                <p><strong>LLM 调用：</strong>1 次（编译报告）</p>
+                <p><strong>格式：</strong>Markdown，带内联引用</p>
+            </div>
+        </div>
+
+        <h2 style="color: #00d2ff; margin-top: 40px; margin-bottom: 20px; font-size: 1.8em;">👥 角色职责矩阵</h2>
+
+        <div class="role-grid">
+            <div class="role-card">
+                <h3>👤 用户</h3>
+                <ul>
+                    <li>提出研究问题（入口）</li>
+                    <li>审核研究计划（可选）</li>
+                    <li>接收最终报告（出口）</li>
+                </ul>
+            </div>
+            <div class="role-card">
+                <h3>🤖 主智能体</h3>
+                <ul>
+                    <li>接收用户请求</li>
+                    <li>调用 run_skill()</li>
+                    <li>格式化子智能体结果</li>
+                    <li>返回最终报告给用户</li>
+                </ul>
+            </div>
+            <div class="role-card">
+                <h3>🔍 子智能体</h3>
+                <ul>
+                    <li>执行完整的 5 步流程</li>
+                    <li>管理 ResearchState</li>
+                    <li>调用大模型和 Web 工具</li>
+                    <li>决策迭代逻辑</li>
+                    <li>验证引用</li>
+                </ul>
+            </div>
+            <div class="role-card">
+                <h3>🧠 大模型</h3>
+                <ul>
+                    <li>分析查询复杂度</li>
+                    <li>生成研究计划</li>
+                    <li>生成搜索查询</li>
+                    <li>提取发现</li>
+                    <li>评估完整性</li>
+                    <li>编译最终报告</li>
+                </ul>
+            </div>
+        </div>
+
+        <h2 style="color: #00d2ff; margin-top: 40px; margin-bottom: 20px; font-size: 1.8em;">📊 典型配置统计</h2>
+
+        <div class="stats">
+            <div class="stat-card">
+                <div class="number">~10</div>
+                <div class="label">LLM 调用次数</div>
+            </div>
+            <div class="stat-card">
+                <div class="number">~5800</div>
+                <div class="label">估计 Tokens</div>
+            </div>
+            <div class="stat-card">
+                <div class="number">~$0.002</div>
+                <div class="label">估计成本</div>
+            </div>
+            <div class="stat-card">
+                <div class="number">~20s</div>
+                <div class="label">估计耗时</div>
+            </div>
+        </div>
+
+        <p style="text-align: center; color: #8892b0; margin-top: 40px; font-size: 0.9em;">
+            基于 v4-flash，breadth=4, depth=2 的典型配置 | Reasonix Deep Research v1.0
+        </p>
+    </div>
+
+    <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: 'default',
+            sequence: {
+                diagramMarginX: 30,
+                diagramMarginY: 30,
+                actorMargin: 80,
+                width: 200,
+                height: 50,
+                boxMargin: 10,
+                boxTextMargin: 5,
+                noteMargin: 10,
+                messageMargin: 40,
+                mirrorActors: true,
+                useMaxWidth: true,
+                rightAngles: false,
+                showSequenceNumbers: false
+            },
+            themeVariables: {
+                primaryColor: '#e0e0e0',
+                primaryTextColor: '#333',
+                primaryBorderColor: '#666',
+                lineColor: '#666',
+                secondaryColor: '#f0f0f0',
+                tertiaryColor: '#fff',
+                noteBkgColor: '#fff5ad',
+                noteTextColor: '#333',
+                noteBorderColor: '#e0e0e0',
+                actorBkg: '#e0e0e0',
+                actorBorder: '#666',
+                actorTextColor: '#333',
+                actorLineColor: '#666',
+                signalColor: '#333',
+                signalTextColor: '#333',
+                labelBoxBkgColor: '#e0e0e0',
+                labelBoxBorderColor: '#666',
+                labelTextColor: '#333',
+                loopTextColor: '#333',
+                activationBorderColor: '#666',
+                activationBkgColor: '#f0f0f0',
+                sequenceNumberColor: '#fff'
+            }
+        });
+    </script>
+</body>
+</html>
